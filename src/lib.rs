@@ -465,17 +465,25 @@ impl Mesh {
 
         let mut paths: Vec<Path> = vec![];
         // Limit search to avoid an infinite loop.
-        for _ in 0..self.layers.iter().map(|l| l.polygons.len()).sum::<usize>() * 10 {
+        let polygon_count: usize = self.layers.iter().map(|l| l.polygons.len()).sum();
+        let max_iterations = polygon_count * 100; // Increased from * 10
+        let mut iteration = 0;
+        for _ in 0..max_iterations {
+            iteration += 1;
             let _potential_path = match search_instance.next() {
                 #[cfg(not(feature = "detailed-layers"))]
-                InstanceStep::Found(path) => return Some(path),
+                InstanceStep::Found(path) => {
+                    log::debug!("Path found after {} iterations (limit: {})", iteration, max_iterations);
+                    return Some(path);
+                },
                 #[cfg(feature = "detailed-layers")]
                 InstanceStep::Found(path) => Some(path),
                 InstanceStep::NotFound => {
+                    log::debug!("Path not found after {} iterations (limit: {})", iteration, max_iterations);
                     if paths.is_empty() {
-                        None
+                        return None;
                     } else {
-                        Some(paths.remove(0))
+                        return Some(paths.remove(0));
                     }
                 }
                 InstanceStep::Continue => None,
@@ -485,6 +493,7 @@ impl Mesh {
                 paths.push(path);
             }
         }
+        log::warn!("Path search hit iteration limit: {} iterations (limit: {})", iteration, max_iterations);
         #[cfg(feature = "detailed-layers")]
         paths.sort_unstable_by(|p1, p2| p1.length.partial_cmp(&p2.length).unwrap());
         if paths.is_empty() {
