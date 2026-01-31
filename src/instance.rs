@@ -17,12 +17,12 @@ use crate::{
     Mesh, Path, SearchNode, PRECISION,
 };
 
-pub(crate) struct Root(Vec2);
+pub(crate) struct Root(Vec2, u8);
 
 impl PartialEq for Root {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
+        self.0 == other.0 && self.1 == other.1
     }
 }
 
@@ -33,6 +33,7 @@ impl std::hash::Hash for Root {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         ((self.0.x * PRECISION) as i32).hash(state);
         ((self.0.y * PRECISION) as i32).hash(state);
+        self.1.hash(state);
     }
 }
 
@@ -156,7 +157,9 @@ impl<'m> SearchInstance<'m> {
             #[cfg(debug_assertions)]
             fail_fast: -1,
         };
-        search_instance.root_history.insert(Root(from.0), 0.0);
+        search_instance
+            .root_history
+            .insert(Root(from.0, from.1.layer()), 0.0);
 
         let empty_node = SearchNode {
             path: SmallVec::new(),
@@ -164,6 +167,7 @@ impl<'m> SearchInstance<'m> {
             path_with_layers: SmallVec::new(),
             path_through_polygons: SmallVec::new(),
             root: from.0,
+            root_layer: from.1.layer(),
             interval: (Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0)),
             edge: (0, 0),
             polygon_from: from.1,
@@ -207,6 +211,7 @@ impl<'m> SearchInstance<'m> {
             {
                 search_instance.add_node(
                     from.0,
+                    from.1.layer(),
                     *other_side,
                     (start.coords + from_layer.offset, edge0),
                     (end.coords + from_layer.offset, edge1),
@@ -227,8 +232,7 @@ impl<'m> SearchInstance<'m> {
                 self.popped += 1;
             }
 
-            if let Some(o) = self.root_history.get(&Root(next.root)) {
-                // TODO: revisit this for layers with different height at the same coordinates
+            if let Some(o) = self.root_history.get(&Root(next.root, next.root_layer)) {
                 if o < &next.distance_start_to_root {
                     #[cfg(feature = "verbose")]
                     println!("node is dominated!");
@@ -544,6 +548,7 @@ impl<'m> SearchInstance<'m> {
     pub(crate) fn add_node(
         &mut self,
         root: Vec2,
+        root_layer: u8,
         other_side: u32,
         start: (Vec2, u32),
         end: (Vec2, u32),
@@ -612,6 +617,7 @@ impl<'m> SearchInstance<'m> {
             path_with_layers,
             path_through_polygons,
             root,
+            root_layer,
             interval: (start.0, end.0),
             edge: (start.1, end.1),
             polygon_from: node.polygon_to,
@@ -621,7 +627,7 @@ impl<'m> SearchInstance<'m> {
             heuristic: heuristic_to_end,
         };
 
-        match self.root_history.entry(Root(root)) {
+        match self.root_history.entry(Root(root, root_layer)) {
             Entry::Occupied(mut o) => {
                 if o.get() < &new_node.distance_start_to_root {
                     #[cfg(debug_assertions)]
@@ -778,7 +784,7 @@ impl<'m> SearchInstance<'m> {
                 }
 
                 const EPSILON: f32 = 1.0e-10;
-                let root = match successor.ty {
+                let (root, root_layer) = match successor.ty {
                     SuccessorType::RightNonObservable => {
                         if successor
                             .interval
@@ -806,7 +812,7 @@ impl<'m> SearchInstance<'m> {
                                 .distance_squared(node.interval.0)
                                 < EPSILON
                         {
-                            node.interval.0
+                            (node.interval.0, node.previous_polygon_layer)
                         } else {
                             #[cfg(debug_assertions)]
                             if self.debug {
@@ -815,7 +821,7 @@ impl<'m> SearchInstance<'m> {
                             continue;
                         }
                     }
-                    SuccessorType::Observable => node.root,
+                    SuccessorType::Observable => (node.root, node.root_layer),
                     SuccessorType::LeftNonObservable => {
                         if (successor.interval.1).distance_squared(end.coords + target_layer.offset)
                             > EPSILON
@@ -840,7 +846,7 @@ impl<'m> SearchInstance<'m> {
                                 .distance_squared(node.interval.1)
                                 < EPSILON
                         {
-                            node.interval.1
+                            (node.interval.1, node.previous_polygon_layer)
                         } else {
                             #[cfg(debug_assertions)]
                             if self.debug {
@@ -867,6 +873,7 @@ impl<'m> SearchInstance<'m> {
 
                 self.add_node(
                     root,
+                    root_layer,
                     *other_side,
                     (successor.interval.0, successor_edge_0),
                     (successor.interval.1, successor_edge_1),
