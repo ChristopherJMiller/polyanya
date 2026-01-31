@@ -472,14 +472,12 @@ impl Mesh {
             iteration += 1;
             match search_instance.next() {
                 InstanceStep::Found(path) => {
-                    log::debug!("Path found after {} iterations (limit: {})", iteration, max_iterations);
                     #[cfg(not(feature = "detailed-layers"))]
                     return Some(path);
                     #[cfg(feature = "detailed-layers")]
                     paths.push(path);
                 },
                 InstanceStep::NotFound => {
-                    log::debug!("Path not found after {} iterations (limit: {})", iteration, max_iterations);
                     #[cfg(not(feature = "detailed-layers"))]
                     return None;
                     #[cfg(feature = "detailed-layers")]
@@ -489,7 +487,7 @@ impl Mesh {
             };
         }
         if iteration >= max_iterations {
-            log::warn!("Path search hit iteration limit: {} iterations (limit: {})", iteration, max_iterations);
+            eprintln!("[polyanya] Path search hit iteration limit: {} iterations (max: {})", iteration, max_iterations);
         }
         #[cfg(feature = "detailed-layers")]
         paths.sort_unstable_by(|p1, p2| p1.length.partial_cmp(&p2.length).unwrap());
